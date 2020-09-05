@@ -77,38 +77,82 @@ def get_collision_step(stuff_for_time_loop, all_params):
     :return: function for taking a Fokker-Planck timestep
     """
 
-    if all_params["nu"] == 0.0:
+    if not all_params["fokker-planck"]["bool"]:
 
         def take_collision_step(f):
             return f
 
-    elif all_params["nu"] > 0.0:
+    elif all_params["fokker-planck"]["bool"]:
 
-        solver = collisions.get_matrix_solver(
-            nx=stuff_for_time_loop["nx"],
-            nv=stuff_for_time_loop["nv"],
-            solver_name=all_params["fokker-planck"]["solver"],
-        )
-        get_collision_matrix_for_all_x = collisions.get_batched_array_maker(
-            vax=stuff_for_time_loop["v"],
-            nv=stuff_for_time_loop["nv"],
-            nx=stuff_for_time_loop["nx"],
-            nu=stuff_for_time_loop["nu"],
-            dt=stuff_for_time_loop["dt"],
-            dv=stuff_for_time_loop["dv"],
-            operator=all_params["fokker-planck"]["type"],
-        )
+        if not all_params["fokker-planck"]["solver"] == "cd2-spectral":
+            solver = collisions.get_matrix_solver(
+                nx=stuff_for_time_loop["nx"],
+                nv=stuff_for_time_loop["nv"],
+                solver_name=all_params["fokker-planck"]["solver"],
+            )
+            get_collision_matrix_for_all_x = collisions.get_batched_array_maker(
+                vax=stuff_for_time_loop["v"],
+                nv=stuff_for_time_loop["nv"],
+                nx=stuff_for_time_loop["nx"],
+                nu=stuff_for_time_loop["nu"],
+                dt=stuff_for_time_loop["dt"],
+                dv=stuff_for_time_loop["dv"],
+                operator=all_params["fokker-planck"]["type"],
+            )
 
-        def take_collision_step(f):
+            def take_collision_step(f):
 
-            # The three diagonals representing collision operator for all x
-            cee_a, cee_b, cee_c = get_collision_matrix_for_all_x(f_xv=f)
+                # The three diagonals representing collision operator for all x
+                cee_a, cee_b, cee_c = get_collision_matrix_for_all_x(f_xv=f)
 
-            # Solve over all x
-            return solver(cee_a, cee_b, cee_c, f)
+                # Solve over all x
+                return solver(cee_a, cee_b, cee_c, f)
+
+        elif all_params["fokker-planck"]["solver"] == "cd2-spectral":
+
+            vbar_getter = collisions.get_vbar_getter(
+                solver=all_params["fokker-planck"]["solver"],
+                v=stuff_for_time_loop["v"],
+                dv=stuff_for_time_loop["dv"],
+            )
+            v0t_getter = collisions.get_v0t_getter(
+                solver=all_params["fokker-planck"]["solver"],
+                v=stuff_for_time_loop["v"],
+                dv=stuff_for_time_loop["dv"],
+            )
+
+            advection_solver = collisions.get_advection_solver(
+                advection_solver_type=all_params["fokker-planck"]["solver"],
+                v=stuff_for_time_loop["v"],
+                dv=stuff_for_time_loop["dv"],
+                dt=stuff_for_time_loop["dt"],
+            )
+
+            diffusion_solver = collisions.get_diffusion_solver(
+                diffusion_solver_type=all_params["fokker-planck"]["solver"],
+                v=stuff_for_time_loop["v"],
+                dv=stuff_for_time_loop["dv"],
+                dt=stuff_for_time_loop["dt"],
+            )
+
+            def take_collision_step(f):
+                # get vbar and v0
+                vbar = vbar_getter(f)
+                v0t_sq = v0t_getter(f)
+
+                # advection using cd-2
+                f = advection_solver(vbar, f)
+
+                # diffusion using fourier spectrum
+                f = diffusion_solver(v0t_sq, f)
+
+                # advection using cd-2
+                f = advection_solver(vbar, f)
+
+                return f
 
     else:
-        raise NotImplementedError
+        raise NotImplementedError("Something's wrong with the Fokker-Planck Boolean")
 
     return take_collision_step
 

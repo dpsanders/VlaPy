@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import numpy as np
+from scipy import fft
 
 
 def get_philharmonic_matrix_maker(vax, nv, nx, nu, dt, dv):
@@ -315,3 +316,42 @@ def get_batched_array_maker(vax, nv, nx, nu, dt, dv, operator="lb"):
         )
 
     return get_matrix_maker(vax, nv, nx, nu, dt, dv)
+
+
+def get_advection_solver(advection_solver_type, v, dv, dt):
+
+    if "cd2" in advection_solver_type:
+
+        def advection_solver(vbar, f):
+            return f - 0.5 * dt * np.gradient((v[None, :] - vbar) * f, axis=1) / dv
+
+    else:
+        raise NotImplementedError(
+            "The Fokker-Planck advection solver in <"
+            + advection_solver_type
+            + "> is not supported"
+        )
+
+    return advection_solver
+
+
+def get_diffusion_solver(diffusion_solver_type, v, kv, dv, dt):
+
+    if "spectral" in diffusion_solver_type:
+        kv_sq = kv ** 2.0
+
+        def diffusion_solver(v0t_sq, f):
+            return np.real(
+                fft.ifft(
+                    fft.fft(f, axis=1) * np.exp(-kv_sq[None, :] * v0t_sq * dt), axis=1
+                )
+            )
+
+    else:
+        raise NotImplementedError(
+            "The Fokker-Planck diffusion solver in <"
+            + diffusion_solver_type
+            + "> is not supported"
+        )
+
+    return diffusion_solver
